@@ -1,11 +1,11 @@
 ﻿/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
- * 
- * Licensed under the Apache License, Version 2.0 (the "License"); 
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -13,8 +13,6 @@
  * limitations under the License.
  *
 */
-
-using System.Linq;
 using QuantConnect.Securities;
 
 namespace QuantConnect.Util
@@ -26,11 +24,22 @@ namespace QuantConnect.Util
     public static class SecurityExtensions
     {
         /// <summary>
-        /// Determines if all subscriptions for the security are internal feeds
+        /// Determines if all subscriptions for the security are internal feeds.
+        /// Defaults to false if there are no subscripions
         /// </summary>
         public static bool IsInternalFeed(this Security security)
         {
-            return security.Subscriptions.All(x => x.IsInternalFeed);
+            var any = false;
+            foreach (var subscription in security.Subscriptions)
+            {
+                any = true;
+                if (!subscription.IsInternalFeed)
+                {
+                    return false;
+                }
+            }
+
+            return any;
         }
     }
 }
