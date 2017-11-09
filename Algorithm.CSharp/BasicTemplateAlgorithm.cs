@@ -30,7 +30,6 @@ namespace QuantConnect.Algorithm.CSharp
         private Symbol _aapl = QuantConnect.Symbol.Create("AAPL", SecurityType.Equity, Market.USA);
 		private int sliceCount = 0;
 
-
         private MyAapl a1 = null;
         private MyAapl a2 = null;
         private MyAapl a3 = null;
@@ -38,12 +37,15 @@ namespace QuantConnect.Algorithm.CSharp
 
         private MyAapl tradeBarBeforeBuy = null;
 
+        private decimal largestLoss = 0;
+        private DateTime largestLossDate;
+
         /// <summary>
         /// Initialise the data and resolution required, as well as the cash and start-end dates for your algorithm. All algorithms must initialized.
         /// </summary>
         public override void Initialize()
         {
-			SetStartDate(2017, 11, 01);  //Set Start Date
+			SetStartDate(2017, 01, 01);  //Set Start Date
 			SetEndDate(2017, 11, 03);    //Set End Date
 			SetCash(100000);             //Set Strategy Cash
 
@@ -59,7 +61,10 @@ namespace QuantConnect.Algorithm.CSharp
 
 		private bool isVolumeIncreasing()
 		{
-			return a2.Volume > a1.Volume && a3.Volume > a2.Volume;
+            bool isFirstOk = a2.Volume > (a1.Volume * 1.4m); //at least 40% bigger;
+            bool isSecondOk = a3.Volume > (a2.Volume * 1.4m);
+
+            return  isFirstOk && isSecondOk;
 		}
 
 		private bool isPriceDescreasing()
@@ -79,7 +84,7 @@ namespace QuantConnect.Algorithm.CSharp
 		private bool isHVT()
 		{
 			bool isPriceAndVolumeConfirming = isPriceDescreasing() && isVolumeIncreasing();
-            bool isLastBarGreen = a4.Close > a4.Open;
+            bool isLastBarGreen = a4.Close > a4.Open && (a4.Close - a4.Open > .1m);
             bool isGreenBarAboveLast = a4.Close > a3.Close;
 
 			if (isPriceAndVolumeConfirming && isGreenBarAboveLast && isLastBarGreen)
@@ -92,6 +97,18 @@ namespace QuantConnect.Algorithm.CSharp
 			}
 		}
 
+        private bool isWithinMarketHours(DateTime time)
+        {
+            if (time.Hour < 10 || (time.Hour > 15 && time.Minute > 30 || time.Hour >= 16))
+            {
+                return false;
+            }
+            else 
+            {
+                return true;
+            }
+
+        }
 
         /// <summary>
         /// OnData event is the primary entry point for your algorithm. Each new data point will be pumped in here.
@@ -101,7 +118,13 @@ namespace QuantConnect.Algorithm.CSharp
         {
             var bar = data["AAPL"];
 
-            //Log("OPEN IS: " + bar.Open + ", Volume is: " + bar.Volume + ", time is: " + bar.Time);
+            if (!isWithinMarketHours(bar.Time))
+            {
+                //Log(bar.Time + " Not doing anything outside of market hours....");
+                return;
+            }
+
+            Log("Close IS: " + bar.Open + ", Volume is: " + bar.Volume + ", time is: " + bar.Time);
 
 			a1 = a2;
 			a2 = a3;
@@ -111,24 +134,35 @@ namespace QuantConnect.Algorithm.CSharp
 			sliceCount++;
 			if (sliceCount <= 4) return;
 
+
 			if (!Portfolio.Invested && isHVT())
 			{
-				Log("Volumes- v1:" + a1.Volume + ", v2: " + a2.Volume + ", v3: " + a3.Volume + ", v4: " + a4.Volume);
-				Log("Price- p1:" + a1.Close + ", p2: " + a2.Close + ", p3: " + a3.Close + ", p4:" + a4.Close);
-				SetHoldings("AAPL", .5);
+				Debug("Volumes- v1:" + a1.Volume + ", v2: " + a2.Volume + ", v3: " + a3.Volume + ", v4: " + a4.Volume);
+				Debug("Price- p1:" + a1.Close + ", p2: " + a2.Close + ", p3: " + a3.Close + ", p4:" + a4.Close);
+				SetHoldings("AAPL", 1);
 				Debug(bar.Time + " Purchased Stock at: " + a4.Close);
                 tradeBarBeforeBuy = a3;
 			}
 			else if (Portfolio.Invested)
 			{
-                if(a4.Close - tradeBarBeforeBuy.Close < -.10m)
+                if(a4.Close - tradeBarBeforeBuy.Close < -.15m)
                 {
-					Debug(bar.Time + "Selling stock for loss: " + a4.Close + ", a3: " + a3.Close + "\n");
+                    var tmpLoss = a4.Close - tradeBarBeforeBuy.Close;
+                    Error("'" + bar.Time + "','LOSS','" + a4.Close + "','" + tmpLoss + "'\n");
+
+                    if(tmpLoss < largestLoss)
+                    {
+                        largestLoss = tmpLoss;
+                        largestLossDate = bar.Time;
+                        Log(largestLossDate + " Largest loss is: " + largestLoss);
+                    }
+
 					Liquidate();
                 }
 				if (a4.Close - tradeBarBeforeBuy.Close > .30m)
 				{
-					Debug(bar.Time + "Selling stock for definite gain: " + a4.Close + "\n");
+                    var gain = a4.Close - tradeBarBeforeBuy.Close;
+                    Error("'"+bar.Time + "','WON','" + a4.Close + "','" + gain + "'\n");
 					Liquidate();
 				}
 				//else if (a4.Close - a3.Close < -.10m)
@@ -138,11 +172,15 @@ namespace QuantConnect.Algorithm.CSharp
 				//}
 			}
         }
+
+        public override void OnEndOfDay()
+        {
+            Liquidate();
+        }
     }
 
 	public class MyAapl : BaseData
 	{
-
 		public int Timestamp = 0;
 		public decimal Open = 0;
 		public decimal High = 0;
