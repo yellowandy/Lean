@@ -15,6 +15,8 @@
 
 using System;
 using QuantConnect.Data;
+using QuantConnect.Data.Consolidators;
+using QuantConnect.Data.Market;
 
 namespace QuantConnect.Algorithm.CSharp
 {
@@ -30,12 +32,12 @@ namespace QuantConnect.Algorithm.CSharp
         private Symbol _aapl = QuantConnect.Symbol.Create("AAPL", SecurityType.Equity, Market.USA);
 		private int sliceCount = 0;
 
-        private MyAapl a1 = null;
-        private MyAapl a2 = null;
-        private MyAapl a3 = null;
-        private MyAapl a4 = null;
+        private TradeBar a1 = null;
+        private TradeBar a2 = null;
+        private TradeBar a3 = null;
+        private TradeBar a4 = null;
 
-        private MyAapl tradeBarBeforeBuy = null;
+        private TradeBar tradeBarBeforeBuy = null;
 
         private decimal largestLoss = 0;
         private DateTime largestLossDate;
@@ -48,12 +50,17 @@ namespace QuantConnect.Algorithm.CSharp
 			SetStartDate(2017, 01, 01);  //Set Start Date
 			SetEndDate(2017, 11, 03);    //Set End Date
 			SetCash(100000);             //Set Strategy Cash
-
+    
             // Find more symbols here: http://quantconnect.com/data
             // Forex, CFD, Equities Resolutions: Tick, Second, Minute, Hour, Daily.
             // Futures Resolution: Tick, Second, Minute
             // Options Resolution: Minute Only.
             AddData<MyAapl>("AAPL", Resolution.Minute);
+
+			var twoMinuteConsolidator = new TradeBarConsolidator(TimeSpan.FromMinutes(5));
+			twoMinuteConsolidator.DataConsolidated += TwoMinuteBarHandler;
+
+			SubscriptionManager.AddConsolidator("AAPL", twoMinuteConsolidator);
 
             // There are other assets with similar methods. See "Selecting Options" etc for more details.
             // AddFuture, AddForex, AddCfd, AddOption
@@ -61,8 +68,8 @@ namespace QuantConnect.Algorithm.CSharp
 
 		private bool isVolumeIncreasing()
 		{
-            bool isFirstOk = a2.Volume > (a1.Volume * 1.4m); //at least 40% bigger;
-            bool isSecondOk = a3.Volume > (a2.Volume * 1.4m);
+            bool isFirstOk = a2.Volume > (a1.Volume * 1.0m); //at least 40% bigger;
+            bool isSecondOk = a3.Volume > (a2.Volume * 1.0m);
 
             return  isFirstOk && isSecondOk;
 		}
@@ -110,21 +117,21 @@ namespace QuantConnect.Algorithm.CSharp
 
         }
 
-        /// <summary>
-        /// OnData event is the primary entry point for your algorithm. Each new data point will be pumped in here.
-        /// </summary>
-        /// <param name="data">Slice object keyed by symbol containing the stock data</param>
-        public override void OnData(Slice data)
+        private void TwoMinuteBarHandler(object sender, TradeBar consolidated)
         {
-            var bar = data["AAPL"];
+			evaluateTrade(consolidated);
+        }
 
-            if (!isWithinMarketHours(bar.Time))
-            {
-                //Log(bar.Time + " Not doing anything outside of market hours....");
-                return;
-            }
 
-            Log("Close IS: " + bar.Open + ", Volume is: " + bar.Volume + ", time is: " + bar.Time);
+        private void evaluateTrade(TradeBar bar)
+        {
+			if (!isWithinMarketHours(bar.Time))
+			{
+				//Log(bar.Time + " Not doing anything outside of market hours....");
+				return;
+			}
+
+			Log("Close IS: " + bar.Open + ", Volume is: " + bar.Volume + ", time is: " + bar.Time);
 
 			a1 = a2;
 			a2 = a3;
@@ -134,44 +141,53 @@ namespace QuantConnect.Algorithm.CSharp
 			sliceCount++;
 			if (sliceCount <= 4) return;
 
-
 			if (!Portfolio.Invested && isHVT())
 			{
 				Debug("Volumes- v1:" + a1.Volume + ", v2: " + a2.Volume + ", v3: " + a3.Volume + ", v4: " + a4.Volume);
 				Debug("Price- p1:" + a1.Close + ", p2: " + a2.Close + ", p3: " + a3.Close + ", p4:" + a4.Close);
-				SetHoldings("AAPL", 1);
+				SetHoldings("AAPL", .2);
 				Debug(bar.Time + " Purchased Stock at: " + a4.Close);
-                tradeBarBeforeBuy = a3;
+				tradeBarBeforeBuy = a3;
 			}
 			else if (Portfolio.Invested)
 			{
-                if(a4.Close - tradeBarBeforeBuy.Close < -.15m)
-                {
-                    var tmpLoss = a4.Close - tradeBarBeforeBuy.Close;
-                    Error("'" + bar.Time + "','LOSS','" + a4.Close + "','" + tmpLoss + "'\n");
+				if (a4.Close - tradeBarBeforeBuy.Close < -.15m)
+				{
+					var tmpLoss = a4.Close - tradeBarBeforeBuy.Close;
+					Error("'" + bar.Time + "','LOSS','" + a4.Close + "','" + tmpLoss + "'\n");
 
-                    if(tmpLoss < largestLoss)
-                    {
-                        largestLoss = tmpLoss;
-                        largestLossDate = bar.Time;
-                        Log(largestLossDate + " Largest loss is: " + largestLoss);
-                    }
+					if (tmpLoss < largestLoss)
+					{
+						largestLoss = tmpLoss;
+						largestLossDate = bar.Time;
+						Log(largestLossDate + " Largest loss is: " + largestLoss);
+					}
 
 					Liquidate();
-                }
-				if (a4.Close - tradeBarBeforeBuy.Close > .30m)
+				}
+				if (a4.Close - tradeBarBeforeBuy.Close > .30m) //THIS IS TOTALLY MESSED UP
 				{
-                    var gain = a4.Close - tradeBarBeforeBuy.Close;
-                    Error("'"+bar.Time + "','WON','" + a4.Close + "','" + gain + "'\n");
+					var gain = a4.Close - tradeBarBeforeBuy.Close;
+					Error("'" + bar.Time + "','WON','" + a4.Close + "','" + gain + "'\n");
 					Liquidate();
 				}
 				//else if (a4.Close - a3.Close < -.10m)
 				//{
-    //                Debug(bar.Time + "Selling stock for somekind of gain: " + a4.Close + ", a3: "+ a3.Close + "\n");
-				//	Liquidate();
+				//                Debug(bar.Time + "Selling stock for somekind of gain: " + a4.Close + ", a3: "+ a3.Close + "\n");
+				//  Liquidate();
 				//}
 			}
-        }
+		}
+
+        /// <summary>
+        /// OnData event is the primary entry point for your algorithm. Each new data point will be pumped in here.
+        /// </summary>
+        /// <param name="data">Slice object keyed by symbol containing the stock data</param>
+        public override void OnData(Slice data)
+        {
+            var bar = data["AAPL"];
+			//evaluateTrade(bar);
+		}
 
         public override void OnEndOfDay()
         {
@@ -179,14 +195,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
     }
 
-	public class MyAapl : BaseData
+	public class MyAapl : TradeBar
 	{
 		public int Timestamp = 0;
-		public decimal Open = 0;
-		public decimal High = 0;
-		public decimal Low = 0;
-		public decimal Close = 0;
-		public decimal Volume = 0;
 
 		/// <summary>
 		/// 1. DEFAULT CONSTRUCTOR: Custom data types need a default constructor.
