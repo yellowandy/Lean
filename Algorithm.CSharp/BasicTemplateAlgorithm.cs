@@ -38,6 +38,7 @@ namespace QuantConnect.Algorithm.CSharp
         private TradeBar a4 = null;
 
         private TradeBar tradeBarBeforeBuy = null;
+        private TradeBar boughtBar = null;
 
         private decimal largestLoss = 0;
         private DateTime largestLossDate;
@@ -57,7 +58,7 @@ namespace QuantConnect.Algorithm.CSharp
             // Options Resolution: Minute Only.
             AddData<MyAapl>("AAPL", Resolution.Minute);
 
-			var twoMinuteConsolidator = new TradeBarConsolidator(TimeSpan.FromMinutes(5));
+			var twoMinuteConsolidator = new TradeBarConsolidator(TimeSpan.FromMinutes(15));
 			twoMinuteConsolidator.DataConsolidated += TwoMinuteBarHandler;
 
 			SubscriptionManager.AddConsolidator("AAPL", twoMinuteConsolidator);
@@ -68,8 +69,8 @@ namespace QuantConnect.Algorithm.CSharp
 
 		private bool isVolumeIncreasing()
 		{
-            bool isFirstOk = a2.Volume > (a1.Volume * 1.0m); //at least 40% bigger;
-            bool isSecondOk = a3.Volume > (a2.Volume * 1.0m);
+            bool isFirstOk = a2.Volume > (a1.Volume * 1.5m); //at least 40% bigger;
+            bool isSecondOk = a3.Volume > (a2.Volume * 1.5m);
 
             return  isFirstOk && isSecondOk;
 		}
@@ -131,7 +132,7 @@ namespace QuantConnect.Algorithm.CSharp
 				return;
 			}
 
-			Log("Close IS: " + bar.Open + ", Volume is: " + bar.Volume + ", time is: " + bar.Time);
+			Log("Close IS: " + bar.Close + ", Volume is: " + bar.Volume + ", time is: " + bar.Time);
 
 			a1 = a2;
 			a2 = a3;
@@ -148,6 +149,7 @@ namespace QuantConnect.Algorithm.CSharp
 				SetHoldings("AAPL", .2);
 				Debug(bar.Time + " Purchased Stock at: " + a4.Close);
 				tradeBarBeforeBuy = a3;
+                boughtBar = a4;
 			}
 			else if (Portfolio.Invested)
 			{
@@ -165,7 +167,7 @@ namespace QuantConnect.Algorithm.CSharp
 
 					Liquidate();
 				}
-				if (a4.Close - tradeBarBeforeBuy.Close > .30m) //THIS IS TOTALLY MESSED UP
+				if (a4.Close - boughtBar.Close > .30m)
 				{
 					var gain = a4.Close - tradeBarBeforeBuy.Close;
 					Error("'" + bar.Time + "','WON','" + a4.Close + "','" + gain + "'\n");
